@@ -6,7 +6,7 @@ const USER_STORAGE_KEY = 'ni.user'
 const FOUR_MINUTES = 1000 * 60 * 4
 
 // Api docs to come
-const useNetlifyIdentity = ({ url: _url }) => {
+const useNetlifyIdentity = ({ url: _url, useCookie }) => {
 
   // Contains the user details section of things
   const [user, setUser] = useState()
@@ -29,11 +29,10 @@ const useNetlifyIdentity = ({ url: _url }) => {
   const [goTrueTokenRefreshTimeoutId, setGoTrueTokenRefreshTimeoutId] = useState()
 
   // A flag for refreshing the goTrueToken - it's only used following an .update(), which
-  // sets the user, so there's no need to set the user too 
+  // sets the user, so there's no need to set the user too
   const [pendingGoTrueTokenRefresh, setPendingGoTrueTokenRefresh] = useState()
 
-  // Memoize the url to prevent useEffect changes since it won't change 
-  const url = useMemo(() => `${_url}/.netlify/identity`, [_url])
+  const url = `${_url}/.netlify/identity`
 
 
   // NOTE: The one trick at play here is for forcing a user refresh. It actually
@@ -56,21 +55,13 @@ const useNetlifyIdentity = ({ url: _url }) => {
 
   // Thin wrapper around useState setter to inject expires_at
   const setGoTrueToken = useCallback(goTrueToken => {
-    const expires_at = new Date(JSON.parse(window.atob(goTrueToken.access_token.split('.')[1])).exp * 1000)
-    _setGoTrueToken({ ...goTrueToken, expires_at })
+    if (goTrueToken?.error === 'invalid_grant') {
+      logout();
+    } else if (!goTrueToken?.error) {
+      const expires_at = new Date(JSON.parse(window.atob(goTrueToken.access_token.split('.')[1])).exp * 1000)
+      _setGoTrueToken({ ...goTrueToken, expires_at })
+    }
   }, [])
-
-  // STUB - Exclusively refreshes the goTrueToken (doesn't touch user) -- 
-  // doesn't check any expirations or anything, just goes ahead and refreshes
-  const refreshGoTrueToken = useCallback(async () => {
-    setGoTrueToken(await fetch(`${url}/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: `grant_type=refresh_token&refresh_token=${goTrueToken.refresh_token}`,
-    }).then(resp => resp.json()))
-  }, [setGoTrueToken, url, goTrueToken])
 
   // API: Log out current user
   const logout = useCallback(async () => {
@@ -79,11 +70,45 @@ const useNetlifyIdentity = ({ url: _url }) => {
     localStorage.removeItem(USER_STORAGE_KEY)
     _setGoTrueToken()
     setUser()
-    if (goTrueTokenRefreshTimeoutId) {
-      clearTimeout(goTrueTokenRefreshTimeoutId)
-      setGoTrueTokenRefreshTimeoutId()
-    }
+    clearTimeout(goTrueTokenRefreshTimeoutId)
   }, [goTrueTokenRefreshTimeoutId])
+
+  const fetchToken = useCallback(async (grant_type, params) => {
+    const body = Object.entries({
+      grant_type,
+      ...params
+    }).map(([ key, val ]) => `${key}=${encodeURIComponent(val)}`).join('&')
+    const headers = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Use-Cookie': !useCookie ? '' : (useCookie === 'session' ? useCookie : 'persistent')
+    }
+    return await fetch(`${url}/token`, {
+      method: 'POST',
+      headers,
+      body
+    }).then(resp => resp.json())
+  }, [useCookie, url]);
+
+  // API: Log in user
+  const login = async ({ email, password }) => {
+    const token = await fetchToken('password', {
+      username: email,
+      password
+    })
+    if (token?.error_description) {
+      throw new Error(token.error_description)
+    }
+    setGoTrueToken(token)
+  }
+
+  // STUB - Exclusively refreshes the goTrueToken (doesn't touch user) --
+  // doesn't check any expirations or anything, just goes ahead and refreshes
+  const refreshGoTrueToken = useCallback(async () => {
+    setGoTrueToken(await fetchToken('refresh_token', {
+      refresh_token: goTrueToken.refresh_token
+    }))
+  }, [setGoTrueToken, fetchToken, goTrueToken])
+
 
   // Any time the goTrueToken changes, make sure it gets saved down to local
   // storage then setup a timeout that will run 4 minutes before it expires (or
@@ -100,7 +125,6 @@ const useNetlifyIdentity = ({ url: _url }) => {
         timeToRefresh
       ))
     }
-
   }, [goTrueToken, refreshGoTrueToken])
 
   // Similarly, always make sure User is stored down to local storage
@@ -118,6 +142,9 @@ const useNetlifyIdentity = ({ url: _url }) => {
       _setGoTrueToken(JSON.parse(goTrueTokenString))
       setUser(JSON.parse(userString))
       setProvisionalUser()
+      if (useCookie) {
+        setPendingGoTrueTokenRefresh(true)
+      }
     }
   }, [])
 
@@ -207,21 +234,6 @@ const useNetlifyIdentity = ({ url: _url }) => {
       setGoTrueToken(token)
       setPendingUpdateArgs(rest)
     }
-  }
-
-  // API: Log in user
-  const login = async ({ email, password }) => {
-    const token = await fetch(`${url}/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: `grant_type=password&username=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
-    }).then(resp => resp.json())
-    if (token?.error_description) {
-      throw new Error(token.error_description)
-    }
-    setGoTrueToken(token)
   }
 
   // API: Sign up as a new user - email, password, data: { full_name: }, etc.
@@ -322,6 +334,7 @@ const useNetlifyIdentity = ({ url: _url }) => {
     authorizedFetch,
     provisionalUser,
     pendingEmailUpdate,
+    refreshGoTrueToken,
     sendPasswordRecovery,
     completeUrlTokenTwoStep,
   }

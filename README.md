@@ -43,6 +43,12 @@ export default class NetlifyIdentityApp extends App {
 
 Once you have the `NetlifyIdentityContext` correctly wrapping your React tree, you should be all set to begin using `useIdentityContext`! Read on!
 
+`NetlifyIdentityContext` takes one more prop called `useCookie` that enables the gotrue backend to set
+a jwt access cookie which in turn enables RBAC functionallity on Netlify. The `useCookie` prop takes three
+different arguments; `"session"`, falsey or non-falsy where `"session"` sets a session cookie, any falsy
+value disables the cookie and any other truthy value sets a persistent cookie. In most cases you just
+want to pass `useCookie={true}`.
+
 ## Usage
 
 By installing the Context at the root of your site (above), you can leverage the `identity` object _anywhere_ in your site. It looks like this:

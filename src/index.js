@@ -9,10 +9,10 @@ const IdentityContext = createContext()
 const useIdentityContext = () => useContext(IdentityContext)
 
 // Top level wrapper around the app to instantiate context
-const NetlifyIdentityContext = ({ url, children }) => {
+const NetlifyIdentityContext = ({ url, useCookie, children }) => {
   if (!url) throw new Error('No Identity URL defined! Use format https://example.com - no trailing slash')
 
-  const identity = useNetlifyIdentity({ url })
+  const identity = useNetlifyIdentity({ url, useCookie })
 
   return (
     <IdentityContext.Provider value={identity}>
