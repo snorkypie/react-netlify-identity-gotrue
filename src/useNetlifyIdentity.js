@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { parseTokenFromLocation } from './parseTokenFromLocation'
 
 const GO_TRUE_TOKEN_STORAGE_KEY = 'ni.goTrueToken'
@@ -7,12 +7,6 @@ const FOUR_MINUTES = 1000 * 60 * 4
 
 // Api docs to come
 const useNetlifyIdentity = ({ url: _url }) => {
-
-  // Contains the user details section of things
-  const [user, setUser] = useState()
-
-  // Contains the actual GoTrue token { access_token:, refresh_token:, expires_at: }
-  const [goTrueToken, _setGoTrueToken] = useState()
 
   // Contains the netlify email-token after it's snagged from the URL path hash
   const [urlToken, setUrlToken] = useState()
@@ -29,11 +23,33 @@ const useNetlifyIdentity = ({ url: _url }) => {
   const [goTrueTokenRefreshTimeoutId, setGoTrueTokenRefreshTimeoutId] = useState()
 
   // A flag for refreshing the goTrueToken - it's only used following an .update(), which
-  // sets the user, so there's no need to set the user too 
+  // sets the user, so there's no need to set the user too
   const [pendingGoTrueTokenRefresh, setPendingGoTrueTokenRefresh] = useState()
 
-  // Memoize the url to prevent useEffect changes since it won't change 
+  // Memoize the url to prevent useEffect changes since it won't change
   const url = useMemo(() => `${_url}/.netlify/identity`, [_url])
+
+  const onMount = useRef(true);
+
+  let defaultUser;
+  let defaultGoTrueToken;
+
+  // Loads user and goTrueToken from LocalStorage on page load
+  if (onMount.current) {
+    onMount.current = false;
+    const goTrueTokenString = localStorage.getItem(GO_TRUE_TOKEN_STORAGE_KEY)
+    const userString = localStorage.getItem(USER_STORAGE_KEY)
+    if (goTrueTokenString && userString) {
+      defaultGoTrueToken = JSON.parse(goTrueTokenString);
+      defaultUser = JSON.parse(userString);
+    }
+  }
+
+  // Contains the user details section of things
+  const [user, setUser] = useState(defaultUser)
+
+  // Contains the actual GoTrue token { access_token:, refresh_token:, expires_at: }
+  const [goTrueToken, _setGoTrueToken] = useState(defaultGoTrueToken)
 
 
   // NOTE: The one trick at play here is for forcing a user refresh. It actually
@@ -60,7 +76,7 @@ const useNetlifyIdentity = ({ url: _url }) => {
     _setGoTrueToken({ ...goTrueToken, expires_at })
   }, [])
 
-  // STUB - Exclusively refreshes the goTrueToken (doesn't touch user) -- 
+  // STUB - Exclusively refreshes the goTrueToken (doesn't touch user) --
   // doesn't check any expirations or anything, just goes ahead and refreshes
   const refreshGoTrueToken = useCallback(async () => {
     setGoTrueToken(await fetch(`${url}/token`, {
@@ -109,17 +125,6 @@ const useNetlifyIdentity = ({ url: _url }) => {
       localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user))
     }
   }, [user])
-
-  // Loads user and goTrueToken from LocalStorage on page load
-  useEffect(() => {
-    const goTrueTokenString = localStorage.getItem(GO_TRUE_TOKEN_STORAGE_KEY)
-    const userString = localStorage.getItem(USER_STORAGE_KEY)
-    if (goTrueTokenString && userString) {
-      _setGoTrueToken(JSON.parse(goTrueTokenString))
-      setUser(JSON.parse(userString))
-      setProvisionalUser()
-    }
-  }, [])
 
   // Grab the urlToken from location if exists
   useEffect(() => {
